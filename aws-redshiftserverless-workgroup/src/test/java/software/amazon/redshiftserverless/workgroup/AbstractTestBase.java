@@ -8,9 +8,11 @@ import software.amazon.awssdk.core.pagination.sync.SdkIterable;
 import software.amazon.awssdk.services.redshiftserverless.RedshiftServerlessClient;
 import software.amazon.awssdk.services.redshiftserverless.model.CreateWorkgroupResponse;
 import software.amazon.awssdk.services.redshiftserverless.model.DeleteWorkgroupResponse;
+import software.amazon.awssdk.services.redshiftserverless.model.GetNamespaceResponse;
 import software.amazon.awssdk.services.redshiftserverless.model.GetWorkgroupResponse;
 import software.amazon.awssdk.services.redshiftserverless.model.ListWorkgroupsResponse;
 import software.amazon.awssdk.services.redshiftserverless.model.UpdateWorkgroupResponse;
+import software.amazon.awssdk.services.redshiftserverless.model.NamespaceStatus;
 import software.amazon.awssdk.services.redshiftserverless.model.WorkgroupStatus;
 import software.amazon.cloudformation.proxy.AmazonWebServicesClientProxy;
 import software.amazon.cloudformation.proxy.Credentials;
@@ -35,6 +37,7 @@ public class AbstractTestBase {
     private static final int UPDATED_BASE_CAPACITY;
     private static final int UPDATED_MAX_CAPACITY;
     private static final WorkgroupStatus STATUS;
+    private static final NamespaceStatus NAMESPACE_STATUS;
     private static final List<String> SUBNET_IDS;
     private static final List<String> SECURITY_GROUP_IDS;
     private static final Set<ConfigParameter> CONFIG_PARAMETERS;
@@ -48,6 +51,7 @@ public class AbstractTestBase {
 
         WORKGROUP_NAME = "DUMMY_WORKGROUP";
         NAMESPACE_NAME = "DUMMY_NAMESPACE";
+        NAMESPACE_STATUS = NamespaceStatus.AVAILABLE;
         WORKGROUP_ARN = "DUMMY_WORKGROUP_ARN";
         BASE_CAPACITY = 0;
         UPDATED_BASE_CAPACITY = 0;
@@ -138,6 +142,16 @@ public class AbstractTestBase {
                 .build();
     }
 
+    public static GetNamespaceResponse getNamespaceResponseSdk() {
+        return GetNamespaceResponse.builder()
+                .namespace(
+                        software.amazon.awssdk.services.redshiftserverless.model.Namespace.builder()
+                                .status(NAMESPACE_STATUS)
+                                .namespaceName(NAMESPACE_NAME)
+                                .build())
+                .build();
+    }
+
     public static GetWorkgroupResponse getReadResponseSdk() {
         return GetWorkgroupResponse.builder()
                 .workgroup(software.amazon.awssdk.services.redshiftserverless.model.Workgroup.builder()
@@ -150,7 +164,6 @@ public class AbstractTestBase {
                         .securityGroupIds(SECURITY_GROUP_IDS)
                         .subnetIds(SUBNET_IDS)
                         .configParameters(RESPONSE_CONFIG_PARAMS)
-                        .creationDate(null)
                         .publiclyAccessible(true)
                         .endpoint(software.amazon.awssdk.services.redshiftserverless.model.Endpoint.builder()
                                 .port(DEFAULT_PORT)
@@ -167,7 +180,10 @@ public class AbstractTestBase {
     }
 
     public static DeleteWorkgroupResponse deleteResponseSdk() {
-        return DeleteWorkgroupResponse.builder().build();
+        return DeleteWorkgroupResponse.builder()
+                .workgroup(software.amazon.awssdk.services.redshiftserverless.model.Workgroup.builder()
+                        .workgroupName(WORKGROUP_NAME)
+                        .build()).build();
     }
 
     public static ResourceModel listRequestResourceModel() {

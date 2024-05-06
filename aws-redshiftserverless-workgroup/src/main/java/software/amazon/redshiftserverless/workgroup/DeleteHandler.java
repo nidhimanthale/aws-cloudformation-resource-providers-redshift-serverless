@@ -4,7 +4,13 @@ import software.amazon.awssdk.services.redshiftserverless.RedshiftServerlessClie
 import software.amazon.awssdk.services.redshiftserverless.model.ConflictException;
 import software.amazon.awssdk.services.redshiftserverless.model.DeleteWorkgroupRequest;
 import software.amazon.awssdk.services.redshiftserverless.model.DeleteWorkgroupResponse;
+import software.amazon.awssdk.services.redshiftserverless.model.GetNamespaceRequest;
+import software.amazon.awssdk.services.redshiftserverless.model.GetNamespaceResponse;
+import software.amazon.awssdk.services.redshiftserverless.model.GetWorkgroupRequest;
+import software.amazon.awssdk.services.redshiftserverless.model.GetWorkgroupResponse;
 import software.amazon.awssdk.services.redshiftserverless.model.InternalServerException;
+import software.amazon.awssdk.services.redshiftserverless.model.NamespaceStatus;
+import software.amazon.awssdk.services.redshiftserverless.model.RedshiftServerlessResponse;
 import software.amazon.awssdk.services.redshiftserverless.model.ResourceNotFoundException;
 import software.amazon.awssdk.services.redshiftserverless.model.ValidationException;
 import software.amazon.cloudformation.proxy.AmazonWebServicesClientProxy;
@@ -15,14 +21,12 @@ import software.amazon.cloudformation.proxy.ProxyClient;
 import software.amazon.cloudformation.proxy.ResourceHandlerRequest;
 
 public class DeleteHandler extends BaseHandlerStd {
-    private Logger logger;
 
-    protected ProgressEvent<ResourceModel, CallbackContext> handleRequest(
-            final AmazonWebServicesClientProxy proxy,
-            final ResourceHandlerRequest<ResourceModel> request,
-            final CallbackContext callbackContext,
-            final ProxyClient<RedshiftServerlessClient> proxyClient,
-            final Logger logger) {
+    protected ProgressEvent<ResourceModel, CallbackContext> handleRequest(final AmazonWebServicesClientProxy proxy,
+                                                                          final ResourceHandlerRequest<ResourceModel> request,
+                                                                          final CallbackContext callbackContext,
+                                                                          final ProxyClient<RedshiftServerlessClient> proxyClient,
+                                                                          final Logger logger) {
 
         this.logger = logger;
 
@@ -32,42 +36,24 @@ public class DeleteHandler extends BaseHandlerStd {
                                 .translateToServiceRequest(Translator::translateToDeleteRequest)
                                 .backoffDelay(BACKOFF_STRATEGY)
                                 .makeServiceCall(this::deleteWorkgroup)
-                                .stabilize(this::isWorkgroupStable)
+                                .stabilize(this::isWorkgroupDeleted)
                                 .handleError(this::deleteWorkgroupErrorHandler)
-                                .progress()
+                                .done(awsResponse -> {
+                                    return ProgressEvent.progress(Translator.translateFromDeleteResponse(awsResponse), callbackContext);
+                                })
                 )
-
                 .then(progress -> ProgressEvent.defaultSuccessHandler(null));
     }
 
-    private DeleteWorkgroupResponse deleteWorkgroup(final DeleteWorkgroupRequest awsRequest,
-                                                    final ProxyClient<RedshiftServerlessClient> proxyClient) {
-        DeleteWorkgroupResponse awsResponse;
-        awsResponse = proxyClient.injectCredentialsAndInvokeV2(awsRequest, proxyClient.client()::deleteWorkgroup);
-
-        logger.log(String.format("%s successfully deleted.", ResourceModel.TYPE_NAME));
-        return awsResponse;
-    }
-
-    private ProgressEvent<ResourceModel, CallbackContext> deleteWorkgroupErrorHandler(final DeleteWorkgroupRequest awsRequest,
+    private ProgressEvent<ResourceModel, CallbackContext> deleteWorkgroupErrorHandler(final Object awsRequest,
                                                                                       final Exception exception,
                                                                                       final ProxyClient<RedshiftServerlessClient> client,
                                                                                       final ResourceModel model,
                                                                                       final CallbackContext context) {
-        if (exception instanceof ResourceNotFoundException) {
-            return ProgressEvent.defaultFailureHandler(exception, HandlerErrorCode.NotFound);
+        logger.log(String.format("Operation: %s : encountered exception for model : %s",
+                awsRequest.getClass().getName(), ResourceModel.TYPE_NAME));
+        logger.log(awsRequest.toString());
 
-        } else if (exception instanceof InternalServerException) {
-            return ProgressEvent.defaultFailureHandler(exception, HandlerErrorCode.InternalFailure);
-
-        } else if (exception instanceof ConflictException) {
-            return ProgressEvent.defaultFailureHandler(exception, HandlerErrorCode.ResourceConflict);
-
-        } else if (exception instanceof ValidationException) {
-            return ProgressEvent.defaultFailureHandler(exception, HandlerErrorCode.InvalidRequest);
-
-        } else {
-            return ProgressEvent.defaultFailureHandler(exception, HandlerErrorCode.GeneralServiceException);
-        }
+        return this.defaultWorkgroupErrorHandler(awsRequest, exception, client, model, context);
     }
 }
