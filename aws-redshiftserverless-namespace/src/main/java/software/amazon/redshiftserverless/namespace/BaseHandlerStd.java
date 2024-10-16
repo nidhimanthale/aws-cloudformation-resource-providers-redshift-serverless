@@ -23,6 +23,10 @@ import software.amazon.cloudformation.proxy.ProgressEvent;
 import software.amazon.cloudformation.proxy.ProxyClient;
 import software.amazon.cloudformation.proxy.ResourceHandlerRequest;
 import software.amazon.cloudformation.proxy.delay.Constant;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
+import software.amazon.awssdk.services.secretsmanager.model.DescribeSecretRequest;
+import software.amazon.awssdk.services.secretsmanager.model.DescribeSecretResponse;
+import com.amazonaws.util.StringUtils;
 
 import java.time.Duration;
 
@@ -44,6 +48,7 @@ public abstract class BaseHandlerStd extends BaseHandler<CallbackContext> {
       callbackContext != null ? callbackContext : new CallbackContext(),
       proxy.newProxy(ClientBuilder::getClient),
       proxy.newProxy(ClientBuilder::redshiftClient),
+      proxy.newProxy(ClientBuilder::secretsManagerClient),
       logger
     );
   }
@@ -54,6 +59,7 @@ public abstract class BaseHandlerStd extends BaseHandler<CallbackContext> {
     final CallbackContext callbackContext,
     final ProxyClient<RedshiftServerlessClient> proxyClient,
     final ProxyClient<RedshiftClient> redshiftProxyClient,
+    final ProxyClient<SecretsManagerClient> secretsManagerProxyClient,
     final Logger logger);
 
   protected boolean isNamespaceActive (final ProxyClient<RedshiftServerlessClient> proxyClient, ResourceModel resourceModel, CallbackContext context) {
@@ -77,6 +83,23 @@ public abstract class BaseHandlerStd extends BaseHandler<CallbackContext> {
     return false;
   }
 
+  protected boolean isNamespaceSecretDeleted (final ProxyClient<SecretsManagerClient> secretsManagerProxyClient, CallbackContext context) {
+    if (StringUtils.isNullOrEmpty(context.getAdminPasswordSecretArn())) {
+      return true;
+    }
+
+    logger.log(String.format("namespaceSecretArn: %s ", context.getAdminPasswordSecretArn()));
+    DescribeSecretRequest describeSecretRequest = DescribeSecretRequest.builder().secretId(context.getAdminPasswordSecretArn()).build();
+    logger.log(String.format("describeSecretRequest: %s ", describeSecretRequest));
+
+    try {
+      secretsManagerProxyClient.injectCredentialsAndInvokeV2(describeSecretRequest, secretsManagerProxyClient.client()::describeSecret);
+    } catch (final software.amazon.awssdk.services.secretsmanager.model.ResourceNotFoundException e) {
+      return true;
+    }
+    return false;
+  }
+
   protected ListSnapshotCopyConfigurationsResponse listSnapshotCopyConfigurations(final ListSnapshotCopyConfigurationsRequest listRequest,
                                                                                   final ProxyClient<RedshiftServerlessClient> proxyClient) {
     ListSnapshotCopyConfigurationsResponse listResponse = proxyClient.injectCredentialsAndInvokeV2(listRequest, proxyClient.client()::listSnapshotCopyConfigurations);
@@ -90,6 +113,23 @@ public abstract class BaseHandlerStd extends BaseHandler<CallbackContext> {
     logger.log(String.format("Created snapshot copy configuration for %s %s in destination region %s.", ResourceModel.TYPE_NAME,
             createResponse.snapshotCopyConfiguration().namespaceName(), createResponse.snapshotCopyConfiguration().destinationRegion()));
     return createResponse;
+  }
+
+  protected String getNamespaceSecretArn(final ProxyClient<RedshiftServerlessClient> proxyClient, final String namespaceName) {
+    String namespaceSecretArn = null;
+    GetNamespaceResponse getNamespaceResponse = null;
+
+    logger.log(String.format("%s %s getNamespace", ResourceModel.TYPE_NAME, namespaceName));
+    GetNamespaceRequest getNamespaceRequest = GetNamespaceRequest.builder().namespaceName(namespaceName).build();
+
+    try {
+      getNamespaceResponse = proxyClient.injectCredentialsAndInvokeV2(getNamespaceRequest, proxyClient.client()::getNamespace);
+      logger.log(String.format("%s %s getNamespaceResponse", ResourceModel.TYPE_NAME, getNamespaceResponse));
+      namespaceSecretArn = getNamespaceResponse.namespace().adminPasswordSecretArn();
+    } catch (final ResourceNotFoundException e) {
+      // do nothing
+    }
+    return namespaceSecretArn;
   }
 
   protected <T> ProgressEvent<ResourceModel, CallbackContext> defaultErrorHandler(final T request,
